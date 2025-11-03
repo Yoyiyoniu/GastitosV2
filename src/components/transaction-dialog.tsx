@@ -29,6 +29,26 @@ export function TransactionDialog({
   const isIncome = type === "income"
   const Icon = isIncome ? PlusCircle : MinusCircle
 
+  // Formateo estilo banco: separadores de miles y 2 decimales
+  const formatCurrencyFromRaw = (raw: string): string => {
+    if (!raw) return ""
+    const [intPart, decPart = "00"] = raw.split(".")
+    const intNumber = intPart.replace(/^0+(?=\d)/, "") || "0"
+    const withThousands = intNumber.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+    const fixedDec = (decPart + "00").slice(0, 2)
+    return `${withThousands}.${fixedDec}`
+  }
+
+  const parseMaskedToRaw = (masked: string): string => {
+    const digits = masked.replace(/\D/g, "")
+    if (digits.length === 0) return ""
+    if (digits.length === 1) return `0.0${digits}`
+    if (digits.length === 2) return `0.${digits}`
+    const intPart = digits.slice(0, -2).replace(/^0+(?=\d)/, "") || "0"
+    const decPart = digits.slice(-2)
+    return `${intPart}.${decPart}`
+  }
+
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
       onOpenChange(false)
@@ -75,6 +95,7 @@ export function TransactionDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      data-transaction-id={transactionId ?? undefined}
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
@@ -86,9 +107,8 @@ export function TransactionDialog({
 
       {/* Dialog */}
       <div
-        className={`relative bg-gradient-to-br ${
-          isIncome ? "from-green-50 to-emerald-50 border-green-300" : "from-red-50 to-pink-50 border-red-300"
-        } border-4 rounded-3xl max-w-sm w-full shadow-2xl transform transition-all duration-300 scale-100`}
+        className={`relative bg-gradient-to-br ${isIncome ? "from-green-50 to-emerald-50 border-green-300" : "from-red-50 to-pink-50 border-red-300"
+          } border-4 rounded-3xl max-w-sm w-full shadow-2xl transform transition-all duration-300 scale-100`}
         style={{ borderRadius: "25px" }}
         onClick={(e) => e.stopPropagation()}
         role="document"
@@ -107,9 +127,8 @@ export function TransactionDialog({
         <div className="p-6 pb-4">
           <div
             id={`${type}-dialog-title`}
-            className={`flex items-center gap-3 ${
-              isIncome ? "text-green-800" : "text-red-800"
-            } text-lg sm:text-xl font-bold`}
+            className={`flex items-center gap-3 ${isIncome ? "text-green-800" : "text-red-800"
+              } text-lg sm:text-xl font-bold`}
           >
             <div className={`${isIncome ? "bg-green-200" : "bg-red-200"} p-2 rounded-full flex-shrink-0`}>
               <Icon className="w-5 h-5 sm:w-6 sm:h-6" aria-hidden="true" />
@@ -129,43 +148,43 @@ export function TransactionDialog({
           <div>
             <label
               htmlFor={`${type}-amount`}
-              className={`${
-                isIncome ? "text-green-800" : "text-red-800"
-              } font-medium flex items-center gap-2 mb-2 text-sm`}
+              className={`${isIncome ? "text-green-800" : "text-red-800"
+                } font-medium flex items-center gap-2 mb-2 text-sm`}
             >
               <DollarSign className="w-4 h-4 flex-shrink-0" />
               <span className="truncate">Cantidad</span>
             </label>
-            <input
-              id={`${type}-amount`}
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="0.00"
-              value={newTransaction.amount}
-              onChange={(e) =>
-                onTransactionChange({
-                  ...newTransaction,
-                  amount: e.target.value,
-                })
-              }
-              className={`w-full px-4 py-3 border-2 ${
-                isIncome
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-gray-500 select-none">$</span>
+              <input
+                id={`${type}-amount`}
+                type="text"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={formatCurrencyFromRaw(newTransaction.amount)}
+                onChange={(e) => {
+                  const raw = parseMaskedToRaw(e.target.value)
+                  onTransactionChange({
+                    ...newTransaction,
+                    amount: raw,
+                  })
+                }}
+                className={`w-full pl-8 pr-4 py-3 border-2 ${isIncome
                   ? "border-green-300 focus:border-green-500 focus:ring-green-200"
                   : "border-red-300 focus:border-red-500 focus:ring-red-200"
-              } rounded-xl text-lg focus:outline-none focus:ring-2 transition-colors bg-white`}
-              required
-              autoFocus
-            />
+                  } rounded-xl text-lg focus:outline-none focus:ring-2 transition-colors bg-white`}
+                required
+                autoFocus
+              />
+            </div>
           </div>
 
           {/* Description Field */}
           <div>
             <label
               htmlFor={`${type}-description`}
-              className={`${
-                isIncome ? "text-green-800" : "text-red-800"
-              } font-medium flex items-center gap-2 mb-2 text-sm`}
+              className={`${isIncome ? "text-green-800" : "text-red-800"
+                } font-medium flex items-center gap-2 mb-2 text-sm`}
             >
               <Receipt className="w-4 h-4 flex-shrink-0" />
               <span className="truncate">Descripción</span>
@@ -181,11 +200,10 @@ export function TransactionDialog({
                   description: e.target.value,
                 })
               }
-              className={`w-full px-4 py-3 border-2 ${
-                isIncome
-                  ? "border-green-300 focus:border-green-500 focus:ring-green-200"
-                  : "border-red-300 focus:border-red-500 focus:ring-red-200"
-              } rounded-xl text-lg focus:outline-none focus:ring-2 transition-colors bg-white`}
+              className={`w-full px-4 py-3 border-2 ${isIncome
+                ? "border-green-300 focus:border-green-500 focus:ring-green-200"
+                : "border-red-300 focus:border-red-500 focus:ring-red-200"
+                } rounded-xl text-lg focus:outline-none focus:ring-2 transition-colors bg-white`}
               required
               maxLength={50}
             />
@@ -195,9 +213,8 @@ export function TransactionDialog({
           <div>
             <label
               htmlFor={`${type}-category`}
-              className={`${
-                isIncome ? "text-green-800" : "text-red-800"
-              } font-medium flex items-center gap-2 mb-2 text-sm`}
+              className={`${isIncome ? "text-green-800" : "text-red-800"
+                } font-medium flex items-center gap-2 mb-2 text-sm`}
             >
               <Target className="w-4 h-4 flex-shrink-0" />
               <span className="truncate">Categoría</span>
@@ -211,11 +228,10 @@ export function TransactionDialog({
                   category: e.target.value,
                 })
               }
-              className={`w-full px-4 py-3 border-2 ${
-                isIncome
-                  ? "border-green-300 focus:border-green-500 focus:ring-green-200"
-                  : "border-red-300 focus:border-red-500 focus:ring-red-200"
-              } rounded-xl text-lg focus:outline-none focus:ring-2 transition-colors bg-white cursor-pointer`}
+              className={`w-full px-4 py-3 border-2 ${isIncome
+                ? "border-green-300 focus:border-green-500 focus:ring-green-200"
+                : "border-red-300 focus:border-red-500 focus:ring-red-200"
+                } rounded-xl text-lg focus:outline-none focus:ring-2 transition-colors bg-white cursor-pointer`}
               required
             >
               {categories.map((cat) => (
@@ -238,11 +254,10 @@ export function TransactionDialog({
             <button
               type="submit"
               disabled={!newTransaction.amount || !newTransaction.description}
-              className={`flex-1 bg-gradient-to-r ${
-                isIncome
-                  ? "from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 disabled:from-green-300 disabled:to-emerald-300"
-                  : "from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 disabled:from-red-300 disabled:to-pink-300"
-              } text-white font-bold py-3 px-4 rounded-xl text-lg transition-all hover:scale-105 active:scale-95 shadow-lg flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:hover:scale-100`}
+              className={`flex-1 bg-gradient-to-r ${isIncome
+                ? "from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 disabled:from-green-300 disabled:to-emerald-300"
+                : "from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 disabled:from-red-300 disabled:to-pink-300"
+                } text-white font-bold py-3 px-4 rounded-xl text-lg transition-all hover:scale-105 active:scale-95 shadow-lg flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:hover:scale-100`}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               <span className="truncate">{isEditing ? "Guardar" : "Agregar"} {isIncome ? "Ingreso" : "Gasto"}</span>
