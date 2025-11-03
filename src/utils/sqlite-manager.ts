@@ -110,14 +110,24 @@ class SQLiteManager {
         }
 
         try {
-            const resultados = await this.db.select<TransactionDB[]>(
+            const resultados = await this.db.select<TransactionDB>(
                 "SELECT * FROM transactions ORDER BY created_at DESC"
             )
 
-            return resultados || []
+            // Asegurar que el resultado sea un array
+            if (Array.isArray(resultados)) {
+                return resultados
+            }
+
+            // Si el resultado no es un array, intentar convertirlo
+            if (resultados && typeof resultados === 'object') {
+                return [resultados as TransactionDB]
+            }
+
+            return []
         } catch (error) {
             console.error("Error al obtener transacciones:", error)
-            return []
+            throw error
         }
     }
 

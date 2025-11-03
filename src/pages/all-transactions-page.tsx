@@ -34,6 +34,7 @@ export function AllTransactionsPage() {
     const navigate = useNavigate()
     const [transactions, setTransactions] = useState<Transaction[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [loadError, setLoadError] = useState<string | null>(null)
     const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
     const [isDialogOpen, setIsDialogOpen] = useState(false)
     const [currentTransaction, setCurrentTransaction] = useState<NewTransaction>(initialTransactionState)
@@ -44,12 +45,32 @@ export function AllTransactionsPage() {
     const loadTransactions = useCallback(async () => {
         try {
             setIsLoading(true)
+            setLoadError(null)
             await sqliteManager.init()
             const dbTransactions = await sqliteManager.obtenerTodasLasTransacciones()
-            const convertedTransactions = dbTransactions.map(convertDBTransactionToTransaction)
+
+            if (!dbTransactions || !Array.isArray(dbTransactions)) {
+                console.warn("Las transacciones no son un array válido")
+                setTransactions([])
+                return
+            }
+
+            const convertedTransactions = dbTransactions
+                .map((dbTransaction) => {
+                    try {
+                        return convertDBTransactionToTransaction(dbTransaction)
+                    } catch (error) {
+                        console.error("Error al convertir transacción:", dbTransaction, error)
+                        return null
+                    }
+                })
+                .filter((transaction): transaction is Transaction => transaction !== null)
+
             setTransactions(convertedTransactions)
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error al cargar transacciones:", error)
+            setTransactions([])
+            setLoadError(error?.message || "No se pudieron cargar las transacciones.")
         } finally {
             setIsLoading(false)
         }
@@ -123,26 +144,60 @@ export function AllTransactionsPage() {
         }
     }, [editingTransaction, currentTransaction, loadTransactions])
 
-    // Filtrar transacciones del mes actual
-    const currentMonth = new Date().getMonth()
-    const currentYear = new Date().getFullYear()
+    // Función auxiliar para parsear fechas de diferentes formatos
+    const parseTransactionDate = (dateString: string): Date | null => {
+        if (!dateString) return null
 
-    const monthTransactions = transactions.filter((transaction) => {
-        // Parsear la fecha que viene en formato local (ej: "12/25/2024")
-        const [month, day, year] = transaction.date.split("/").map(Number)
-        // Crear fecha correctamente (mes - 1 porque Date usa 0-indexado)
-        const transactionDate = new Date(year, month - 1, day)
-        return (
-            transactionDate.getMonth() === currentMonth && transactionDate.getFullYear() === currentYear
-        )
-    }).sort((a, b) => {
-        // Ordenar por fecha, más recientes primero
-        const [monthA, dayA, yearA] = a.date.split("/").map(Number)
-        const [monthB, dayB, yearB] = b.date.split("/").map(Number)
-        const dateA = new Date(yearA, monthA - 1, dayA)
-        const dateB = new Date(yearB, monthB - 1, dayB)
-        return dateB.getTime() - dateA.getTime()
-    })
+        try {
+            // Intentar parsear como fecha ISO
+            if (dateString.includes("T") || dateString.includes("-")) {
+                const date = new Date(dateString)
+                if (!isNaN(date.getTime())) return date
+            }
+
+            // Intentar parsear formato MM/DD/YYYY o DD/MM/YYYY
+            const parts = dateString.split("/")
+            if (parts.length === 3) {
+                const [part1, part2, part3] = parts.map(Number)
+                // Asumir formato MM/DD/YYYY (si part1 > 12, entonces es DD/MM/YYYY)
+                if (part1 > 12) {
+                    // Formato DD/MM/YYYY
+                    const date = new Date(part3, part2 - 1, part1)
+                    if (!isNaN(date.getTime())) return date
+                } else {
+                    // Formato MM/DD/YYYY
+                    const date = new Date(part3, part1 - 1, part2)
+                    if (!isNaN(date.getTime())) return date
+                }
+            }
+
+            // Intentar parseo directo
+            const date = new Date(dateString)
+            if (!isNaN(date.getTime())) return date
+
+            return null
+        } catch (error) {
+            console.error("Error al parsear fecha:", dateString, error)
+            return null
+        }
+    }
+
+    // Ordenar todas las transacciones por fecha (más recientes primero)
+    const allTransactionsSorted = transactions
+        .map((transaction) => {
+            const transactionDate = parseTransactionDate(transaction.date)
+            return { transaction, transactionDate }
+        })
+        .map(({ transaction }) => transaction)
+        .sort((a, b) => {
+            // Ordenar por fecha, más recientes primero
+            const dateA = parseTransactionDate(a.date)
+            const dateB = parseTransactionDate(b.date)
+
+            if (!dateA || !dateB) return 0
+
+            return dateB.getTime() - dateA.getTime()
+        })
 
     if (isLoading) {
         return (
@@ -176,7 +231,7 @@ export function AllTransactionsPage() {
                             <h1
                                 className="text-2xl sm:text-3xl font-bold text-blue-800"
                             >
-                                Movimientos del Mes
+                                Todos los Movimientos
                             </h1>
                         </div>
                     </div>
@@ -186,18 +241,25 @@ export function AllTransactionsPage() {
                         className="border-4 border-blue-300 shadow-xl bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50"
                         style={{ borderRadius: "25px 18px 30px 20px" }}
                     >
+                        {loadError && (
+                            <div className="px-6 pt-6">
+                                <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3">
+                                    {loadError}
+                                </div>
+                            </div>
+                        )}
                         <div className="p-6 pb-4">
                             <div className="text-blue-800 text-lg sm:text-xl flex items-center justify-between px-2">
                                 <div className="flex items-center gap-3">
                                     <span className="font-bold">
-                                        Total: {monthTransactions.length} movimientos
+                                        Total: {allTransactionsSorted.length} movimientos
                                     </span>
                                 </div>
                             </div>
                         </div>
 
                         <div className="space-y-4 px-6 pb-6">
-                            {monthTransactions.length === 0 ? (
+                            {allTransactionsSorted.length === 0 ? (
                                 <div className="text-center py-12">
                                     <div className="bg-blue-100 p-4 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
                                         <List className="w-8 h-8 text-blue-500" />
@@ -205,11 +267,11 @@ export function AllTransactionsPage() {
                                     <p
                                         className="text-blue-700 text-lg font-medium px-4"
                                     >
-                                        No hay movimientos este mes
+                                        No hay movimientos para mostrar
                                     </p>
                                 </div>
                             ) : (
-                                monthTransactions.map((transaction) => {
+                                allTransactionsSorted.map((transaction) => {
                                     const IconComponent = transaction.icon
                                     return (
                                         <div
@@ -246,31 +308,29 @@ export function AllTransactionsPage() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2 flex-shrink-0">
                                                 <div
-                                                    className={`font-bold text-lg md:text-xl flex-shrink-0 ${transaction.amount > 0 ? "text-green-600" : "text-red-600"
+                                                    className={`font-bold text-base sm:text-lg md:text-xl ${transaction.amount > 0 ? "text-green-600" : "text-red-600"
                                                         }`}
                                                 >
                                                     {transaction.amount > 0 ? "+" : ""}${Math.abs(transaction.amount)}
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        onClick={() => handleEdit(transaction)}
-                                                        className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 transition-colors"
-                                                        aria-label="Editar transacción"
-                                                        type="button"
-                                                    >
-                                                        <Edit2 className="w-4 h-4 text-blue-600" />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteClick(transaction)}
-                                                        className="p-2 rounded-full bg-red-100 hover:bg-red-200 transition-colors"
-                                                        aria-label="Eliminar transacción"
-                                                        type="button"
-                                                    >
-                                                        <Trash2 className="w-4 h-4 text-red-600" />
-                                                    </button>
-                                                </div>
+                                                <button
+                                                    onClick={() => handleEdit(transaction)}
+                                                    className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 transition-colors flex-shrink-0"
+                                                    aria-label="Editar transacción"
+                                                    type="button"
+                                                >
+                                                    <Edit2 className="w-4 h-4 text-blue-600" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteClick(transaction)}
+                                                    className="p-2 rounded-full bg-red-100 hover:bg-red-200 transition-colors flex-shrink-0"
+                                                    aria-label="Eliminar transacción"
+                                                    type="button"
+                                                >
+                                                    <Trash2 className="w-4 h-4 text-red-600" />
+                                                </button>
                                             </div>
                                         </div>
                                     )
